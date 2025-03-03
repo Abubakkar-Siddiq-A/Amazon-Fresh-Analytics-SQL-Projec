@@ -90,10 +90,70 @@ DELETE FROM suppliers WHERE city = 'West Linda';
 ### **Task 10: Handling Transactions**
 - Deduct stock and insert order details in a single transaction.
 ```sql
-BEGIN;
-UPDATE Products SET Stock_Quantity = Stock_Quantity - 5 WHERE Product_ID = '2aa28375-c563-41b5-aa33';
-INSERT INTO Order_Details (Order_ID, Product_ID, Quantity) VALUES ('order123', '2aa28375-c563-41b5-aa33', 5);
-COMMIT;
+DO $$ 
+DECLARE 
+    v_stock_quantity INT;
+    v_price_per_unit NUMERIC;
+    v_order_id UUID;
+    v_customer_id UUID := '96ed9663-7e5c-4c11-bbf9-c8ccb4c111d7'; -- Replace with actual customer ID
+BEGIN
+    -- Start Transaction
+    BEGIN
+        -- Check if sufficient stock is available
+        SELECT Stock_Quantity INTO v_stock_quantity 
+        FROM Products 
+        WHERE Product_ID = '2aa28375-c563-41b5-aa33-8e2c2e0f4db9'
+        FOR UPDATE;  -- Lock row to prevent race conditions
+
+        -- If stock is insufficient, raise exception
+        IF v_stock_quantity IS NULL OR v_stock_quantity < 5 THEN
+            RAISE EXCEPTION 'Transaction rolled back: Insufficient stock';
+        END IF;
+
+        -- Retrieve price per unit
+        SELECT Price_Per_Unit INTO v_price_per_unit 
+        FROM Products 
+        WHERE Product_ID = '2aa28375-c563-41b5-aa33-8e2c2e0f4db9';
+
+        -- Ensure price is not null
+        IF v_price_per_unit IS NULL THEN
+            RAISE EXCEPTION 'Price per unit not found for product %', '2aa28375-c563-41b5-aa33-8e2c2e0f4db9';
+        END IF;
+
+        -- Generate a unique order ID
+        v_order_id := gen_random_uuid();
+
+        -- Insert into Orders table
+        INSERT INTO Orders (Order_ID, Customer_ID, Order_Date, Order_Amount, Delivery_Fee, Discount_Applied)
+        VALUES (v_order_id, v_customer_id, CURRENT_DATE, 5 * v_price_per_unit, 321, 81);
+
+        -- Update stock quantity
+        UPDATE Products
+        SET Stock_Quantity = Stock_Quantity - 5
+        WHERE Product_ID = '2aa28375-c563-41b5-aa33-8e2c2e0f4db9';
+
+        -- Insert order details
+        INSERT INTO Order_Details (Order_ID, Product_ID, Quantity, Unit_Price, Discount)
+        VALUES (
+            v_order_id,
+            '2aa28375-c563-41b5-aa33-8e2c2e0f4db9',
+            5,
+            v_price_per_unit,
+            81
+        );
+
+        -- If everything is successful, print success message
+        RAISE NOTICE 'Transaction committed: Stock updated and order recorded with Order_ID: %', v_order_id;
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            -- Rollback automatically handled, just print error message
+            RAISE NOTICE 'Transaction rolled back due to error: %', SQLERRM;
+            RETURN;
+    END;
+END $$;
+
+
 ```
 
 ---
